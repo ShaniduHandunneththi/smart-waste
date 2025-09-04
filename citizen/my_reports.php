@@ -129,7 +129,8 @@ function status_class(string $s): string {
                     $reportLink = 'uploads/reports/report_' . (int)$r['id'] . '.html';
                   ?>
                   <?php if ($isCompleted): ?>
-                    <a class="a-open" href="<?= h($reportLink) ?>" target="_blank" rel="noopener">Open Result</a>
+                    <a href="index.php?route=citizen.view_result&id=<?= (int)$r['id'] ?>">Open Result</a>
+
                   <?php else: ?>
                     <a class="a-open disabled" href="#" title="Result available after completion">Open Result</a>
                   <?php endif; ?>

@@ -1,6 +1,6 @@
 <?php
 // collector/collector_dashboard.php
-include("config\db.php");
+include("config\\db.php");
 
 // ---- Guard: only logged-in collectors ----
 if (!isset($_SESSION['user_id'])) { header('Location: /index.php?route=login'); exit; }
@@ -58,18 +58,15 @@ if ($stmt){
   mysqli_stmt_close($stmt);
 }
 
-/* ========== Recently Claimed by me (with claim_id) ========== 
-   We join report_claims to get the ACTIVE claim in my name
-   so that the "Complete" button can pass both report_id and claim_id.
-*/
+/* ========== Recently Claimed by me (with claim_id) ========== */
 $claimed = [];
 $sql = "SELECT r.id, r.description, r.assigned_at, r.gps_lat, r.gps_lng,
                rc.id AS claim_id
         FROM reports r
         LEFT JOIN report_claims rc
-          ON rc.report_id  = r.id
+          ON rc.report_id   = r.id
          AND rc.collector_id = ?
-         AND rc.status    = 'claimed'
+         AND rc.status       = 'claimed'
         WHERE r.status='claimed' AND r.collector_id=?
         ORDER BY r.assigned_at DESC
         LIMIT 10";
@@ -107,6 +104,37 @@ $sql = "SELECT id, description, created_at
         LIMIT 5";
 $res = mysqli_query($conn,$sql);
 while ($res && ($row = mysqli_fetch_assoc($res))) $pendingPreview[] = $row;
+
+/* ========== Pending points for the map (unassigned, with coords) ========== */
+$pendingPoints = [];
+$sql = "SELECT id, description, gps_lat, gps_lng, created_at
+        FROM reports
+        WHERE status='pending'
+          AND (collector_id IS NULL OR collector_id=0)
+          AND gps_lat IS NOT NULL
+          AND gps_lng IS NOT NULL
+        ORDER BY created_at DESC
+        LIMIT 100";
+$res = mysqli_query($conn,$sql);
+while ($res && ($row = mysqli_fetch_assoc($res))) {
+  $lat = (float)$row['gps_lat'];
+  $lng = (float)$row['gps_lng'];
+  if ($lat !== 0.0 || $lng !== 0.0) {
+    $pendingPoints[] = [
+      'id' => (int)$row['id'],
+      'description' => $row['description'] ?? '',
+      'lat' => $lat,
+      'lng' => $lng,
+      'created_at' => $row['created_at'] ?? ''
+    ];
+  }
+}
+
+/* ---- Optional Google Maps API key (for Google basemap via Leaflet.GoogleMutant) ----
+   If you don't have/need a Google basemap, leave it empty; OSM will work fine.
+*/
+$GOOGLE_MAPS_API_KEY = ''; // e.g., 'AIza...'; keep '' to disable Google basemap
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -114,12 +142,31 @@ while ($res && ($row = mysqli_fetch_assoc($res))) $pendingPreview[] = $row;
 <meta charset="UTF-8" />
 <title>Smart Waste – Collector Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+  crossorigin=""
+/>
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+  crossorigin="">
+</script>
+
+<?php if ($GOOGLE_MAPS_API_KEY !== ''): ?>
+  <!-- Optional: GoogleMutant for Leaflet (Google tiles) -->
+  <script src="https://unpkg.com/leaflet.gridlayer.googlemutant@0.13.5/Leaflet.GoogleMutant.js"></script>
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key=<?= h($GOOGLE_MAPS_API_KEY) ?>"></script>
+<?php endif; ?>
+
 <style>
   :root{
     --green:#2E7D32; --green-dark:#1B5E20;
     --text:#263238; --muted:#6b7b83;
     --bg:#f5f7f8; --card:#ffffff; --border:#e6eaee;
     --pending:#ffb300; --claimed:#0277bd; --completed:#2E7D32;
+    --danger:#c62828;
   }
   *{box-sizing:border-box}
   body{ margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif; }
@@ -128,10 +175,11 @@ while ($res && ($row = mysqli_fetch_assoc($res))) $pendingPreview[] = $row;
   .top{display:flex; align-items:center; justify-content:space-between; margin-bottom:18px;}
   .brand{display:flex; align-items:center; gap:10px; color:var(--green); font-weight:800;}
   .logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--green),var(--green-dark));}
-  .top-actions{display:flex; gap:8px; flex-wrap:wrap;}
+  .top-actions{display:flex; gap:8px; flex-wrap:wrap; align-items:center;}
   .btn{display:inline-block; padding:10px 14px; border-radius:10px; border:1px solid transparent; font-weight:700; cursor:pointer; font-size:14px; text-decoration:none; transition:.15s transform,.15s filter;}
   .btn-outline{background:#fff; color:var(--green); border-color:var(--green)}
   .btn-primary{background:var(--green); color:#fff}
+  .btn-danger{background:var(--danger); color:#fff; border-color:var(--danger)}
   .btn:hover{transform:translateY(-1px); filter:brightness(1.02)}
   .avatar{width:36px;height:36px;border-radius:50%; background:#c8e6c9; display:inline-flex; align-items:center; justify-content:center; font-weight:800; color:#1B5E20;}
 
@@ -166,8 +214,12 @@ while ($res && ($row = mysqli_fetch_assoc($res))) $pendingPreview[] = $row;
   .link{text-decoration:none; font-weight:800; font-size:13px; padding:8px 10px; border-radius:10px; border:1px solid var(--border); background:#fff; color:#2E7D32;}
   .link:hover{background:#eef5ef}
 
-  .map{height:260px; border:1px dashed var(--border); border-radius:12px; background:#fafafa; display:flex; align-items:center; justify-content:center; color:#90a4ae; font-weight:700;}
-
+  .map{height:260px; border:1px solid var(--border); border-radius:12px; overflow:hidden;}
+  #map { height: 260px; width: 100%; }
+  .leaflet-popup-content { font-size: 13px; }
+  .base-switch { margin-top: 8px; display:flex; gap:8px; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  
   @media (max-width: 960px){ .kpi{grid-column:span 6;} .wide{grid-column:span 12;} .narrow{grid-column:span 12;} }
   @media (max-width: 640px){ .kpi{grid-column:span 12;} .item{grid-template-columns:1fr;} .acts{justify-content:flex-start;} }
 </style>
@@ -176,10 +228,14 @@ while ($res && ($row = mysqli_fetch_assoc($res))) $pendingPreview[] = $row;
   <div class="wrap">
     <!-- Topbar -->
     <div class="top">
-      <div class="brand"><span class="logo"></span><span>Smart Waste – Collector</span></div>
+      <div class="brand">
+        <span class="logo"></span><span>Smart Waste – Collector</span>
+      </div>
       <div class="top-actions">
         <a class="btn btn-outline" href="index.php?route=collector.task_history">Task History</a>
         <a class="btn btn-primary" href="index.php?route=collector.reports_list">Pending Reports</a>
+        <!-- NEW: Logout button -->
+        <a class="btn btn-danger" href="index.php?route=logout" title="Log out">Logout</a>
         <span class="avatar" title="<?= h($collectorName) ?>"><?= h($initials) ?></span>
       </div>
     </div>
@@ -226,12 +282,8 @@ while ($res && ($row = mysqli_fetch_assoc($res))) $pendingPreview[] = $row;
               <div class="acts">
                 <span class="status s-claimed">CLAIMED</span>
                 <a class="link" href="index.php?route=collector.report_detail&id=<?= (int)$c['id'] ?>&claim_id=<?= (int)($c['claim_id'] ?? 0) ?>">Open</a>
-
                 <?php if (!empty($c['claim_id'])): ?>
-                  <a class="link"
-                     href="index.php?route=collector.complete_form&report_id=<?= (int)$c['id'] ?>&claim_id=<?= (int)$c['claim_id'] ?>">
-                     Complete
-                  </a>
+                  <a class="link" href="index.php?route=collector.complete_form&report_id=<?= (int)$c['id'] ?>&claim_id=<?= (int)$c['claim_id'] ?>">Complete</a>
                 <?php else: ?>
                   <span class="muted">No active claim id</span>
                 <?php endif; ?>
@@ -241,10 +293,17 @@ while ($res && ($row = mysqli_fetch_assoc($res))) $pendingPreview[] = $row;
         </div>
       </div>
 
-      <!-- Map (placeholder) -->
+      <!-- Map card -->
       <div class="card narrow">
         <h4 class="section-title">Map – Pending Reports</h4>
-        <div class="map">Map placeholder (embed Leaflet/Google Maps later)</div>
+        <div class="map"><div id="map"></div></div>
+        <div class="base-switch">
+          <button type="button" id="btnOSM" class="btn btn-outline">OSM</button>
+          <?php if ($GOOGLE_MAPS_API_KEY !== ''): ?>
+            <button type="button" id="btnGoogle" class="btn btn-outline">Google</button>
+          <?php endif; ?>
+        </div>
+        <div class="note">Tip: Click a marker to open or claim the report.</div>
         <div class="actions" style="margin-top:12px;">
           <a class="btn-outline btn" href="index.php?route=collector.reports_list">Open List</a>
         </div>
@@ -300,5 +359,93 @@ while ($res && ($row = mysqli_fetch_assoc($res))) $pendingPreview[] = $row;
 
     </div> <!-- /grid -->
   </div>
+
+<script>
+  // Data for map
+  const PENDING_POINTS = <?= json_encode($pendingPoints, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>;
+  const HAS_GOOGLE = <?= $GOOGLE_MAPS_API_KEY !== '' ? 'true' : 'false' ?>;
+
+  // Default center (Colombo) if geolocation not granted
+  const DEFAULT_CENTER = [6.9271, 79.8612];
+  const DEFAULT_ZOOM   = 12;
+
+  // Base layers
+  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  });
+  let googleLayer = null; // will set if key provided
+
+  // Map init
+  const map = L.map('map', {
+    center: DEFAULT_CENTER,
+    zoom: DEFAULT_ZOOM,
+    layers: [osm]
+  });
+
+  // Optional Google basemap
+  if (HAS_GOOGLE && L.gridLayer && L.gridLayer.googleMutant) {
+    googleLayer = L.gridLayer.googleMutant({
+      type: 'roadmap'
+    });
+  }
+
+  // Basemap switch UI
+  document.getElementById('btnOSM')?.addEventListener('click', () => {
+    if (!map.hasLayer(osm)) map.addLayer(osm);
+    if (googleLayer && map.hasLayer(googleLayer)) map.removeLayer(googleLayer);
+  });
+  document.getElementById('btnGoogle')?.addEventListener('click', () => {
+    if (!googleLayer) return;
+    if (!map.hasLayer(googleLayer)) map.addLayer(googleLayer);
+    if (map.hasLayer(osm)) map.removeLayer(osm);
+  });
+
+  // Add pending markers
+  const markers = [];
+  PENDING_POINTS.forEach(p => {
+    const m = L.marker([p.lat, p.lng]).addTo(map);
+    const viewURL = `index.php?route=collector.report_detail&id=${p.id}`;
+    const claimURL = `index.php?route=collector.reports_list`; // direct claim link usually from the list
+    m.bindPopup(`
+      <div style="min-width:200px">
+        <b>Report #${p.id}</b><br/>
+        <div style="color:#546e7a">${escapeHtml(p.description || '')}</div>
+        <div class="note">Submitted: ${escapeHtml(p.created_at || '')}</div>
+        <div style="margin-top:6px;">
+          <a class="link" href="${viewURL}">Open</a>
+          <a class="link" style="margin-left:6px;" href="${claimURL}">Claim</a>
+        </div>
+      </div>
+    `);
+    markers.push(m);
+  });
+
+  // Fit bounds if we have many points
+  if (markers.length > 1) {
+    const group = L.featureGroup(markers);
+    map.fitBounds(group.getBounds().pad(0.2));
+  }
+
+  // Try geolocation to center near collector
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(pos => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      map.setView([lat, lng], 14);
+      L.circleMarker([lat, lng], { radius: 6, color: '#1B5E20', fillColor:'#2E7D32', fillOpacity:0.9 })
+        .bindPopup('You are here')
+        .addTo(map);
+    }, () => {
+      // keep default center
+    }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 });
+  }
+
+  function escapeHtml(s){
+    return (s||'').replace(/[&<>"']/g, ch => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'
+    }[ch]));
+  }
+</script>
 </body>
 </html>

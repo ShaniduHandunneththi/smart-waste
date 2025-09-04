@@ -93,6 +93,7 @@ switch ($route) {
 
     case 'citizen.notifications':
         serve('citizen/notifications', 'citizen'); break;
+        
 
     // NEW: view a single report (linked from My Reports & Notifications)
     case 'citizen.report_view':
@@ -117,6 +118,9 @@ switch ($route) {
         }
         header('Location: ' . url_to('citizen.notifications'));
         break;
+    case 'citizen.view_result':
+        serve('citizen/view_result', 'citizen'); break;
+
 
     /* ---------- COLLECTOR ---------- */
     case 'collector.dashboard':

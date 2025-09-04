@@ -1,7 +1,7 @@
 <?php
 // collector/report_detail.php
 // Raw, no helpers; accepts both collector and admin.
-include("config\db.php");
+include("config\\db.php");
 
 // ---- access guard (collector or admin) ----
 if (empty($_SESSION['user_id'])) {
@@ -36,12 +36,11 @@ mysqli_stmt_close($st);
 if (!$report) { echo "<p>Report not found.</p>"; exit; }
 
 /* -------- Fetch claim ----------
-
    Priority:
    1) If claim_id is provided → fetch that claim (if belongs to this report).
    2) Else:
-      - Admin  : last claim of this report (any collector).
-      - Collector: last claim BY THIS collector for this report.
+      - Admin     : last claim of this report (any collector).
+      - Collector : last claim BY THIS collector for this report.
 */
 $claim = null;
 
@@ -98,6 +97,16 @@ if (!empty($claim['ai_category_id'])) {
 }
 
 function h($v){ return htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8'); }
+
+/* ---- Optional Google Maps API key (for Google basemap via Leaflet.GoogleMutant) ----
+   If you don't need Google tiles, leave it empty ('') and we keep OSM only.
+*/
+$GOOGLE_MAPS_API_KEY = ''; // e.g., 'AIza...'; keep '' to disable Google basemap
+
+// Prepare coordinates for the map (cast to float if present)
+$lat = isset($report['gps_lat']) ? (float)$report['gps_lat'] : 0.0;
+$lng = isset($report['gps_lng']) ? (float)$report['gps_lng'] : 0.0;
+$hasCoords = ($lat || $lng);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -105,6 +114,25 @@ function h($v){ return htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8'); }
 <meta charset="UTF-8">
 <title>Smart Waste – Report Detail</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+  crossorigin=""
+/>
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+  crossorigin="">
+</script>
+
+<?php if ($GOOGLE_MAPS_API_KEY !== ''): ?>
+  <!-- Optional: GoogleMutant for Leaflet (Google tiles) -->
+  <script src="https://unpkg.com/leaflet.gridlayer.googlemutant@0.13.5/Leaflet.GoogleMutant.js"></script>
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key=<?= h($GOOGLE_MAPS_API_KEY) ?>"></script>
+<?php endif; ?>
+
 <style>
   :root{
     --green:#2E7D32; --green-dark:#1B5E20; --text:#263238; --muted:#6b7b83;
@@ -129,7 +157,10 @@ function h($v){ return htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8'); }
   dd{margin:0;color:#37474f;font-size:14px}
   .status{display:inline-block;padding:4px 10px;border-radius:999px;color:#fff;font-weight:800;font-size:12px}
   .s-pending{background:var(--pending)} .s-claimed{background:var(--claimed)} .s-completed{background:var(--completed)}
-  .map{height:260px;border:1px dashed var(--border);border-radius:12px;background:#fafafa;display:flex;align-items:center;justify-content:center;color:#90a4ae;font-weight:700;margin-top:8px}
+  .map-box{margin-top:8px}
+  #map { height: 260px; width: 100%; border:1px solid var(--border); border-radius:12px; }
+  .base-switch{display:flex; gap:8px; margin-top:8px}
+  .note { font-size: 12px; color: var(--muted); margin-top: 6px; }
   @media (max-width:980px){.grid{grid-template-columns:1fr}}
 </style>
 </head>
@@ -199,15 +230,31 @@ function h($v){ return htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8'); }
         <dt>Longitude</dt><dd><?php echo h($report['gps_lng']); ?></dd>
         <dt>Map</dt>
         <dd>
-          <?php if (!empty($report['gps_lat']) && !empty($report['gps_lng'])): ?>
-            <a href="https://maps.google.com/?q=<?php echo urlencode($report['gps_lat'].','.$report['gps_lng']); ?>"
+          <?php if ($hasCoords): ?>
+            <a href="https://maps.google.com/?q=<?php echo urlencode($lat.','.$lng); ?>"
                target="_blank" rel="noopener">Open in Google Maps</a>
           <?php else: ?>
             —
           <?php endif; ?>
         </dd>
       </dl>
-      <div class="map">Map placeholder</div>
+
+      <div class="map-box">
+        <?php if ($hasCoords): ?>
+          <div id="map"></div>
+          <div class="base-switch">
+            <button type="button" id="btnOSM" class="btn btn-outline">OSM</button>
+            <?php if ($GOOGLE_MAPS_API_KEY !== ''): ?>
+              <button type="button" id="btnGoogle" class="btn btn-outline">Google</button>
+            <?php endif; ?>
+          </div>
+          <div class="note">Click marker for details. Use buttons to switch basemap.</div>
+        <?php else: ?>
+          <div style="padding:12px;border:1px dashed var(--border);border-radius:12px;background:#fff;color:#6b7b83">
+            No GPS coordinates available for this report.
+          </div>
+        <?php endif; ?>
+      </div>
 
       <h3 style="margin:16px 0 8px">Claim Info</h3>
       <?php if ($claim): ?>
@@ -233,5 +280,65 @@ function h($v){ return htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8'); }
     </div>
   </div>
 </div>
+
+<?php if ($hasCoords): ?>
+<script>
+  // Report coords from PHP
+  const REPORT_LAT = <?= json_encode($lat) ?>;
+  const REPORT_LNG = <?= json_encode($lng) ?>;
+  const REPORT_ID  = <?= (int)$report['id'] ?>;
+  const DESC       = <?= json_encode($report['description'] ?? '') ?>;
+  const HAS_GOOGLE = <?= $GOOGLE_MAPS_API_KEY !== '' ? 'true' : 'false' ?>;
+
+  // Basemap: OSM
+  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  });
+
+  // Init map
+  const map = L.map('map', {
+    center: [REPORT_LAT, REPORT_LNG],
+    zoom: 15,
+    layers: [osm]
+  });
+
+  // Optional Google basemap
+  let googleLayer = null;
+  if (HAS_GOOGLE && L.gridLayer && L.gridLayer.googleMutant) {
+    googleLayer = L.gridLayer.googleMutant({ type: 'roadmap' });
+  }
+
+  // Marker
+  const m = L.marker([REPORT_LAT, REPORT_LNG]).addTo(map);
+  const gLink = `https://maps.google.com/?q=${REPORT_LAT},${REPORT_LNG}`;
+  m.bindPopup(`
+    <div style="min-width:200px">
+      <b>Report #${REPORT_ID}</b><br/>
+      <div style="color:#546e7a">${escapeHtml(DESC)}</div>
+      <div style="margin-top:6px">
+        <a class="btn btn-outline" href="${gLink}" target="_blank" rel="noopener">Open in Google Maps</a>
+      </div>
+    </div>
+  `);
+
+  // Basemap switch
+  document.getElementById('btnOSM')?.addEventListener('click', () => {
+    if (!map.hasLayer(osm)) map.addLayer(osm);
+    if (googleLayer && map.hasLayer(googleLayer)) map.removeLayer(googleLayer);
+  });
+  document.getElementById('btnGoogle')?.addEventListener('click', () => {
+    if (!googleLayer) return;
+    if (!map.hasLayer(googleLayer)) map.addLayer(googleLayer);
+    if (map.hasLayer(osm)) map.removeLayer(osm);
+  });
+
+  function escapeHtml(s){
+    return (s||'').replace(/[&<>"']/g, ch => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'
+    }[ch]));
+  }
+</script>
+<?php endif; ?>
 </body>
 </html>

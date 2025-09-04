@@ -1,6 +1,6 @@
 <?php
 // admin/admin_dashboard.php  (No KPIs, with Refresh)
-include("config\db.php");
+include("config\\db.php");
 
 if (!isset($_SESSION['user_id'])) { header('Location: /index.php?route=login'); exit; }
 if (empty($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
@@ -83,6 +83,7 @@ while ($res && ($row = mysqli_fetch_assoc($res))) { $citizens[] = $row; }
     --bg:#f5f7f8; --card:#ffffff; --border:#e6eaee;
     --pending:#ffb300; --claimed:#0277bd; --completed:#2E7D32;
     --organic:#6abd4b; --recyclable:#1e88e5; --hazardous:#d81b60;
+    --danger:#c62828;
   }
   *{box-sizing:border-box}
   body{ margin:0; background:var(--bg); color:var(--text);
@@ -92,12 +93,13 @@ while ($res && ($row = mysqli_fetch_assoc($res))) { $citizens[] = $row; }
   .top{display:flex; align-items:center; justify-content:space-between; margin-bottom:18px;}
   .brand{display:flex; align-items:center; gap:10px; color:var(--green); font-weight:800;}
   .logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--green),var(--green-dark));}
-  .nav{display:flex; gap:8px; flex-wrap:wrap;}
+  .nav{display:flex; gap:8px; flex-wrap:wrap; align-items:center;}
   .btn{display:inline-block; padding:10px 14px; border-radius:10px; border:1px solid transparent;
        font-weight:700; cursor:pointer; font-size:14px; text-decoration:none;}
   .btn-outline{background:#fff; color:var(--green); border-color:var(--green)}
   .btn-primary{background:var(--green); color:#fff}
   .btn-ghost{background:#fff; color:#0277bd; border:1px solid var(--border)}
+  .btn-danger{background:var(--danger); color:#fff; border-color:var(--danger)}
   .btn-outline:hover{background:#eef5ef}
   .btn-primary:hover{background:var(--green-dark)}
   .btn-ghost:hover{background:#f2f9ff}
@@ -130,6 +132,7 @@ while ($res && ($row = mysqli_fetch_assoc($res))) { $citizens[] = $row; }
   .bar > span{display:block; height:100%}
   .b-org{background:var(--organic)} .b-rec{background:var(--recyclable)} .b-haz{background:var(--hazardous)}
   .legend{display:flex; gap:12px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:8px;}
+
   .dot{width:10px;height:10px;border-radius:999px;display:inline-block}
   .d-org{background:var(--organic)} .d-rec{background:var(--recyclable)} .d-haz{background:var(--hazardous)}
 
@@ -150,6 +153,8 @@ while ($res && ($row = mysqli_fetch_assoc($res))) { $citizens[] = $row; }
         <a class="btn btn-outline" href="index.php?route=admin.manage_users">Manage Users</a>
         <a class="btn btn-outline" href="index.php?route=admin.reports_overview">Reports Overview</a>
         <a class="btn btn-primary" href="index.php?route=admin.analytics">Analytics</a>
+        <!-- NEW: Logout -->
+        <a class="btn btn-danger" href="index.php?route=logout" title="Log out">Logout</a>
       </div>
     </div>
 

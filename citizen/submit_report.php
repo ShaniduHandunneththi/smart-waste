@@ -1,42 +1,37 @@
 <?php
 // citizen/submit_report.php
-// Convert of "submit_report.html" → PHP that writes to DB
+// Submit report with mandatory GPS via browser geolocation only
 
-// 1) DB + session
-include("config\db.php");
+include("config\\db.php");
 
-// 2) Guard: citizen only
-if (!isset($_SESSION['user_id'])) {
-  header('Location: /index.php?route=login'); exit;
-}
+// Guard: citizen only
+if (!isset($_SESSION['user_id'])) { header('Location: /index.php?route=login'); exit; }
 if (empty($_SESSION['role']) || $_SESSION['role'] !== 'citizen') {
   http_response_code(403);
   echo "<h2 style='font-family:system-ui'>403 – Forbidden</h2><p>Citizen access only.</p>";
   exit;
 }
 
-$userId = (int)($_SESSION['user_id'] ?? 0);
+$userId   = (int)($_SESSION['user_id'] ?? 0);
 $fullName = $_SESSION['full_name'] ?? 'Citizen';
 
-// helper
 function h($v){ return htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8'); }
 
 $err = '';
 $ok  = '';
 $finalPath = '';
 
-// 3) Handle submit
+// Handle submit
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $desc   = trim($_POST['description'] ?? '');
   $gpsLat = trim($_POST['gps_lat'] ?? '');
   $gpsLng = trim($_POST['gps_lng'] ?? '');
 
-  // basic validation
   if ($desc === '')           $err = 'Please add a short description.';
-  if (!$err && $gpsLat === '') $err = 'GPS latitude missing (enable location or enter manually).';
-  if (!$err && $gpsLng === '') $err = 'GPS longitude missing (enable location or enter manually).';
+  if (!$err && $gpsLat === '') $err = 'GPS latitude missing. Allow location and try again.';
+  if (!$err && $gpsLng === '') $err = 'GPS longitude missing. Allow location and try again.';
 
-  // photo (optional but recommended) — you can make it required by checking empty($_FILES['photo']['name'])
+  // Optional photo
   if (!$err && isset($_FILES['photo']) && is_uploaded_file($_FILES['photo']['tmp_name'])) {
     $allowed = ['image/jpeg','image/png','image/webp','image/jpg'];
     $type    = mime_content_type($_FILES['photo']['tmp_name']);
@@ -46,24 +41,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($size > 4 * 1024 * 1024) {
       $err = 'Image is too large (max 4MB).';
     } else {
-      // move to /uploads/photos/
       $dir = __DIR__ . '/../uploads/photos/';
-      if (!is_dir($dir)) {
-        @mkdir($dir, 0777, true);
-      }
-      $ext = pathinfo($_FILES['photo']['name'], PATHINFO_EXTENSION);
+      if (!is_dir($dir)) { @mkdir($dir, 0777, true); }
+      $ext  = pathinfo($_FILES['photo']['name'], PATHINFO_EXTENSION);
       $name = 'cit_'.$userId.'_'.date('Ymd_His').'_'.bin2hex(random_bytes(4)).'.'.$ext;
       $dest = $dir . $name;
       if (!move_uploaded_file($_FILES['photo']['tmp_name'], $dest)) {
         $err = 'Failed to save uploaded photo.';
       } else {
-        // path to save in DB (web path)
-        $finalPath = 'uploads/photos/'.$name;
+        $finalPath = 'uploads/photos/'.$name;   // Web path for DB
       }
     }
   }
 
-  // If all good → insert
   if (!$err) {
     $sql = "INSERT INTO reports
               (citizen_id, collector_id, description, photo_path, gps_lat, gps_lng, status, created_at, updated_at)
@@ -73,13 +63,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       mysqli_stmt_bind_param($stmt, 'issss', $userId, $desc, $finalPath, $gpsLat, $gpsLng);
       if (mysqli_stmt_execute($stmt)) {
         $newId = mysqli_insert_id($conn);
-
-        // optional: record a "general" notification for citizen
-        // $n = mysqli_prepare($conn, "INSERT INTO notifications(user_id, report_id, type, message, is_read, created_at)
-        //                             VALUES (?, ?, 'general', 'Your report has been submitted.', 0, NOW())");
-        // mysqli_stmt_bind_param($n, 'ii', $userId, $newId); mysqli_stmt_execute($n); mysqli_stmt_close($n);
-
         $ok = "Report submitted successfully! (ID: #{$newId})";
+        // Optionally redirect to My Reports:
+        // header('Location: index.php?route=citizen.my_reports'); exit;
       } else {
         $err = 'DB error while saving report.';
       }
@@ -116,12 +102,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   .btn-primary{ background:var(--green); color:#fff }
   .btn-outline:hover{ background:#eef5ef }
   .btn-primary:hover{ background:var(--green-dark) }
+  .btn[disabled]{ opacity:.6; pointer-events:none; }
 
   .card{ background:#fff; border:1px solid var(--border); border-radius:14px; padding:18px; }
   h2{ margin:0 0 12px; font-size:20px }
 
-  .row{ display:grid; gap:12px; grid-template-columns: 1fr 1fr; }
-  .row-1{ grid-template-columns: 1fr; }
+  .row-1{ display:grid; gap:12px; grid-template-columns: 1fr; }
   label{ font-weight:700; color:#37474f; display:block; margin-bottom:6px; }
   .input, .textarea{
     width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:#fff; font-size:14px;
@@ -138,7 +124,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   }
   .preview img{ max-height:100%; max-width:100%; object-fit:cover; }
   .actions{ display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; }
-  @media (max-width:700px){ .row{ grid-template-columns:1fr; } }
+
+  .gps-box{ background:#fafafa; border:1px dashed var(--border); border-radius:12px; padding:12px; margin-top:10px; }
+  .gps-row{ display:flex; gap:12px; flex-wrap:wrap; font-size:14px; }
+  .gps-val{ font-weight:700; color:#37474f; }
+  @media (max-width:700px){ .gps-row{ flex-direction:column; } }
 </style>
 </head>
 <body>
@@ -160,7 +150,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="banner-ok"><?= h($ok) ?></div>
       <?php endif; ?>
 
-      <form method="post" enctype="multipart/form-data" novalidate>
+      <form method="post" enctype="multipart/form-data" novalidate id="reportForm">
         <div class="row-1">
           <div>
             <label for="description">Description</label>
@@ -169,32 +159,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           </div>
         </div>
 
-        <div class="row">
+        <div class="row-1">
           <div>
             <label for="photo">Photo (before cleanup)</label>
             <input class="input" type="file" id="photo" name="photo" accept="image/*" />
             <div class="preview" id="preview"><span class="muted">Image preview</span></div>
             <div class="hint">JPG/PNG/WEBP, max 4MB.</div>
           </div>
+        </div>
 
-          <div>
-            <label>GPS (auto)</label>
-            <div class="row">
-              <div>
-                <label for="gps_lat" class="muted">Latitude</label>
-                <input class="input" id="gps_lat" name="gps_lat" placeholder="lat" value="<?= h($_POST['gps_lat'] ?? '') ?>" />
-              </div>
-              <div>
-                <label for="gps_lng" class="muted">Longitude</label>
-                <input class="input" id="gps_lng" name="gps_lng" placeholder="lng" value="<?= h($_POST['gps_lng'] ?? '') ?>" />
-              </div>
-            </div>
-            <div class="hint" id="gpsHint">Trying to get location… Allow location access.</div>
+        <!-- GPS auto — hidden fields + read-only display -->
+        <input type="hidden" id="gps_lat" name="gps_lat" value="<?= h($_POST['gps_lat'] ?? '') ?>">
+        <input type="hidden" id="gps_lng" name="gps_lng" value="<?= h($_POST['gps_lng'] ?? '') ?>">
+
+        <div class="gps-box">
+          <div id="gpsHint" class="muted">Requesting your location… please allow.</div>
+          <div class="gps-row" id="gpsRow" style="display:none;">
+            <div>Latitude: <span class="gps-val" id="latVal">—</span></div>
+            <div>Longitude: <span class="gps-val" id="lngVal">—</span></div>
           </div>
         </div>
 
         <div class="actions">
-          <button type="submit" class="btn btn-primary">Submit Report</button>
+          <button type="submit" id="submitBtn" class="btn btn-primary" disabled>Submit Report</button>
           <a class="btn btn-outline" href="index.php?route=citizen.my_reports">Cancel</a>
         </div>
       </form>
@@ -214,24 +201,64 @@ photo?.addEventListener('change', () => {
   preview.appendChild(img);
 });
 
-// geolocation
-const gpsLat = document.getElementById('gps_lat');
-const gpsLng = document.getElementById('gps_lng');
-const gpsHint= document.getElementById('gpsHint');
+// geolocation only (no manual inputs)
+const gpsLat  = document.getElementById('gps_lat');
+const gpsLng  = document.getElementById('gps_lng');
+const gpsHint = document.getElementById('gpsHint');
+const gpsRow  = document.getElementById('gpsRow');
+const latVal  = document.getElementById('latVal');
+const lngVal  = document.getElementById('lngVal');
+const submitBtn = document.getElementById('submitBtn');
 
-if (navigator.geolocation) {
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      gpsLat.value = pos.coords.latitude.toFixed(6);
-      gpsLng.value = pos.coords.longitude.toFixed(6);
-      gpsHint.textContent = 'Location captured.';
-    },
-    () => { gpsHint.textContent = 'Could not fetch GPS automatically. You can type it manually.'; },
-    {enableHighAccuracy:true, timeout:7000, maximumAge:0}
-  );
-} else {
-  gpsHint.textContent = 'Geolocation not supported. Enter coordinates manually.';
+function enableSubmitIfReady(){
+  if (gpsLat.value && gpsLng.value) submitBtn.removeAttribute('disabled');
 }
+
+function showPosition(position) {
+  const latitude  = position.coords.latitude;
+  const longitude = position.coords.longitude;
+
+  gpsLat.value = latitude;
+  gpsLng.value = longitude;
+
+  latVal.textContent = gpsLat.value;
+  lngVal.textContent = gpsLng.value;
+
+  gpsHint.textContent = 'Location captured.';
+  gpsRow.style.display = '';
+  enableSubmitIfReady();
+}
+
+function showError(error) {
+  switch(error.code) {
+    case error.PERMISSION_DENIED:
+      gpsHint.textContent = 'Permission denied. Please allow location and reload.';
+      break;
+    case error.POSITION_UNAVAILABLE:
+      gpsHint.textContent = 'Location unavailable. Try moving to open area or check GPS.';
+      break;
+    case error.TIMEOUT:
+      gpsHint.textContent = 'Location request timed out. Try again.';
+      break;
+    default:
+      gpsHint.textContent = 'An unknown error occurred while fetching your location.';
+      break;
+  }
+  // keep submit disabled if no coords
+}
+
+function getLocation() {
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(showPosition, showError, {
+      enableHighAccuracy: true, timeout: 10000, maximumAge: 0
+    });
+  } else {
+    gpsHint.textContent = 'Geolocation not supported. Please use a GPS-enabled browser/device.';
+  }
+}
+
+// Start immediately
+getLocation();
 </script>
 </body>
 </html>

@@ -247,9 +247,7 @@ while ($res && ($row = mysqli_fetch_assoc($res))) { $citizens[] = $row; }
           <span><span class="dot d-haz"></span> Hazardous <?= $pcHaz ?>%</span>
         </div>
 
-        <h4 class="section-title" style="margin-top:16px;">Hotspot Map</h4>
-        <div class="map">Heatmap placeholder — embed Leaflet/Google Maps + heat layer</div>
-        <div class="muted" style="margin-top:8px;">Tip: Filter last 7–30 days for better visibility of illegal dumping clusters.</div>
+       
       </div>
 
       <!-- Top Collectors -->

@@ -188,10 +188,7 @@ while ($res && ($row = mysqli_fetch_assoc($res))) { $citizens[] = $row; }
           </select>
           <input class="input" id="dFrom" type="date">
           <input class="input" id="dTo" type="date">
-          <div class="export">
-            <a class="btn-ghost btn" href="index.php?route=admin.export&type=csv">Export CSV</a>
-            <a class="btn-ghost btn" href="index.php?route=admin.export&type=pdf" target="_blank" rel="noopener">Export PDF</a>
-          </div>
+         
         </div>
 
         <table class="table" id="tbl">

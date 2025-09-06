@@ -323,16 +323,7 @@ if ($res){
         </table>
       </div>
 
-      <!-- Placeholder: Hotspot map -->
-      <div class="card col-6">
-        <h4 class="section-title">Hotspot Map (placeholder)</h4>
-        <div style="height:260px; border:1px dashed var(--border); border-radius:12px; background:#fafafa; display:flex; align-items:center; justify-content:center; color:#90a4ae; font-weight:700;">
-          Embed Leaflet/Google Maps + heat layer (using report lat/lng)
-        </div>
-        <div style="color:#6b7b83; font-size:12px; margin-top:8px;">
-          Tip: Filter to last 7–30 days to see recent dumping clusters.
-        </div>
-      </div>
+      
     </div>
   </div>
 </body>
